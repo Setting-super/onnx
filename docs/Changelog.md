@@ -14801,6 +14801,8 @@ This version of the operator has been available since version 12 of the default 
 #### Attributes
 
 <dl>
+<dt><tt>ignore_index</tt> : int</dt>
+<dd>Specifies a target value that is ignored and does not contribute to the input gradient. It is an optional value and valid values are [0, C).</dd>
 <dt><tt>reduction</tt> : string (default is mean)</dt>
 <dd>Type of reduction to apply to loss: none, sum, mean (default). 'none': the output is the loss for each sample. 'sum': the output will be summed. 'mean': the sum of the output will be divided by the sum of applied weights.</dd>
 </dl>
@@ -14830,6 +14832,42 @@ This version of the operator has been available since version 12 of the default 
 <dd>Constrain input, weight, and output types to floating-point tensors.</dd>
 <dt><tt>Tind</tt> : tensor(int32), tensor(int64)</dt>
 <dd>Constrain target to integer types</dd>
+</dl>
+
+### <a name="Pow-12"></a>**Pow-12**</a>
+
+  Pow takes input data (Tensor<T>) and exponent Tensor, and
+  produces one output data (Tensor<T>) where the function `f(x) = x^exponent`,
+  is applied to the data tensor elementwise.
+  This operator supports **multidirectional (i.e., Numpy-style) broadcasting**; for more details please check [the doc](Broadcasting.md).
+
+#### Version
+
+This version of the operator has been available since version 12 of the default ONNX operator set.
+
+#### Inputs
+
+<dl>
+<dt><tt>X</tt> : T</dt>
+<dd>First operand, base of the exponent.</dd>
+<dt><tt>Y</tt> : T1</dt>
+<dd>Second operand, power of the exponent.</dd>
+</dl>
+
+#### Outputs
+
+<dl>
+<dt><tt>Z</tt> : T</dt>
+<dd>Output tensor (same size as X)</dd>
+</dl>
+
+#### Type Constraints
+
+<dl>
+<dt><tt>T</tt> : tensor(int32), tensor(int64), tensor(float16), tensor(float), tensor(double)</dt>
+<dd>Constrain input X and output types to float/int tensors.</dd>
+<dt><tt>T1</tt> : tensor(uint8), tensor(uint16), tensor(uint32), tensor(uint64), tensor(int8), tensor(int16), tensor(int32), tensor(int64), tensor(float16), tensor(float), tensor(double)</dt>
+<dd>Constrain input Y types to float/int tensors.</dd>
 </dl>
 
 ### <a name="ReduceMax-12"></a>**ReduceMax-12**</a>
@@ -14956,6 +14994,8 @@ This version of the operator has been available since version 12 of the default 
 #### Attributes
 
 <dl>
+<dt><tt>ignore_index</tt> : int</dt>
+<dd>Specifies a target value that is ignored and does not contribute to the input gradient. It is an optional value and valid values are [0, C).</dd>
 <dt><tt>reduction</tt> : string (default is mean)</dt>
 <dd>Type of reduction to apply to loss: none, sum, mean(default). 'none': no reduction will be applied, 'sum': the output will be summed. 'mean': the sum of the output will be divided by the number of elements in the output.</dd>
 </dl>
@@ -14965,7 +15005,7 @@ This version of the operator has been available since version 12 of the default 
 <dl>
 <dt><tt>scores</tt> : T</dt>
 <dd>The predicted outputs with shape [batch_size, class_size], or [batch_size, class_size, D1, D2 , ..., Dk], where K is the number of dimensions.</dd>
-<dt><tt>labels</tt> : T</dt>
+<dt><tt>labels</tt> : Tind</dt>
 <dd>The ground truth output tensor, with shape [batch_size], or [batch_size, D1, D2, ..., Dk], where K is the number of dimensions.</dd>
 <dt><tt>weights</tt> (optional) : T</dt>
 <dd>A manual rescaling weight given to each class. If given, it has to be a 1D Tensor assigning weight to each of the classes. Otherwise, it is treated as if having all ones.</dd>
@@ -14985,6 +15025,8 @@ This version of the operator has been available since version 12 of the default 
 <dl>
 <dt><tt>T</tt> : tensor(float16), tensor(float), tensor(double)</dt>
 <dd>Constrain input and output types to float tensors.</dd>
+<dt><tt>Tind</tt> : tensor(int32), tensor(int64)</dt>
+<dd>Constrain target to integer types</dd>
 </dl>
 
 ### <a name="UnfoldToDepth-12"></a>**UnfoldToDepth-12**</a>
@@ -15422,5 +15464,114 @@ This version of the operator has been available since version 1 of the 'ai.onnx.
 <dl>
 <dt><tt>T</tt> : tensor(uint8), tensor(uint16), tensor(uint32), tensor(uint64), tensor(int8), tensor(int16), tensor(int32), tensor(int64), tensor(float16), tensor(float), tensor(double), tensor(string), tensor(bool), tensor(complex64), tensor(complex128)</dt>
 <dd>Allow inputs and outputs to be any kind of tensor.</dd>
+</dl>
+
+### <a name="ai.onnx.training.Momentum-1"></a>**ai.onnx.training.Momentum-1**</a>
+
+  Compute one iteration of stochastic gradient update with momentum.
+      This operator can conduct the optimization of multiple tensor variables.
+  
+      Let's define the behavior of this operator. As you can imagine, SG with momentum requires
+      several parameters:
+       
+       - The learning-rate "R".
+       - The update count "T". That is, the number of conducted training iterations. It should
+         be zero in the first training iteration.
+       - A L2-norm regularization coefficient "norm_coefficient".
+       - A decay coefficient of previous accumulated gradient (i.e., momentum) "alpha".
+       - The scaling coefficient of current gradient "beta".
+       - An attribute to choose either standard momentum or Nesterov's momentum "mode" should
+         be used.
+  
+      For the sake of simplicity, assume that there is only one tensor (called "X") to be optimized.
+      Other necessary inputs are "X"'s gradient (called "G") and "X"'s momentum (called "V"). This
+      Momentum operator maps all these inputs to the new value of "X" (called "X_new") and its new
+      momentum (called "V_new").
+      
+      This operator supports two different momentum algorithms. Set the attribute "mode" to
+      "nesterov" if Nesterov's momentum is desired. Otherwise, set the attribute "model" to
+      "standard" to use standard momentum. Computation details are described subsequently.
+  
+      Let "+", "-", "*", and "/" are all element-wise operations with numpy-style broadcasting.
+  
+      Pseudo code for SG with standard momentum:
+  
+        // Add gradient of 0.5 * norm_coefficient * ||X||^2, where ||X|| is the sum of squared
+        // values of all elements in X.
+        G_regularized = norm_coefficient * X + G
+  
+        // In the first training iteration, beta should always be 1.
+        beta_adjusted = T > 0 ? beta : 1
+  
+        // Compute the current momentum based on previous momentum and the current gradient.
+        V_new = alpha * V + beta_adjusted * G_regularized
+  
+        // Update X.
+        X_new = X - R * V_new
+  
+      Pseudo code for SG with Nesterov's momentum:
+  
+        // Add gradient of 0.5 * norm_coefficient * ||X||^2, where ||X|| is the sum of squared
+        // values of all elements in X.
+        G_regularized = norm_coefficient * X + G;
+  
+        // In the first training iteration, beta should always be 1.
+        beta_adjusted = T > 0 ? beta : 1
+  
+        // Compute the current momentum based on previous momentum and the current gradient.
+        V_new = alpha * V + beta_adjusted * G_regularized;
+  
+        // Compute final update direction and then update X.
+        X_new = X - R * (G_regularized + alpha * V_new)
+  
+      If one assign this operators to optimize multiple inputs, for example, "X_1" and "X_2". The same
+      pseudo code would be extended to handle all tensors jointly. More specifically, we can view "X" as a
+      concatenation of "X_1" and "X_2" (of course, their gradient and accumulate gradient should
+      be concatenated too) and then our pseudo code becomes applicable.
+
+#### Version
+
+This version of the operator has been available since version 1 of the 'ai.onnx.training' operator set.
+
+#### Attributes
+
+<dl>
+<dt><tt>alpha</tt> : float (required)</dt>
+<dd>The decay factor of momentum. It should be a scalar.</dd>
+<dt><tt>beta</tt> : float (required)</dt>
+<dd>The coefficient of gradient in computing new momentum. It should be a scalar.</dd>
+<dt><tt>mode</tt> : string (required)</dt>
+<dd>Its value should be either "nesterov" or "standard". The value "nesterov" leads to the use of Nesterov's momentum while "standard" invokes stochastic gradient method using standard momentum</dd>
+<dt><tt>norm_coefficient</tt> : float (required)</dt>
+<dd>Coefficient of 0.5 * norm_coefficient * ||X||^2.</dd>
+</dl>
+
+#### Inputs (3 - &#8734;)
+
+<dl>
+<dt><tt>R</tt> : T1</dt>
+<dd>The learning rate.</dd>
+<dt><tt>T</tt> : T2</dt>
+<dd>Update count of "X". It should be a scalar.</dd>
+<dt><tt>inputs</tt> (variadic, heterogeneous) : T3</dt>
+<dd>It sequentially contains the current values of optimized tensors, then their gradient tensors, and finally their momentum tensors. For example, if two tensors "X_1" and "X_2" are optimized, The expected input list would be ["X_1", "X_2", gradient of "X_1", gradient of "X_2", momentum of "X_1", momentum of "X_2"].</dd>
+</dl>
+
+#### Outputs (1 - &#8734;)
+
+<dl>
+<dt><tt>outputs</tt> (variadic, heterogeneous) : T3</dt>
+<dd>It sequentially contains the new values of optimized tensors and then the new values of their momentum tensors. For example, if two tensors "X_1" and "X_2" are optimized, the output list would be [new value of "X_1," new value of "X_2" new momentum of "X_1", new momentum of "X_2"].</dd>
+</dl>
+
+#### Type Constraints
+
+<dl>
+<dt><tt>T1</tt> : tensor(float), tensor(double)</dt>
+<dd>Constrain input types to float scalars.</dd>
+<dt><tt>T2</tt> : tensor(int64)</dt>
+<dd>Constrain input types to 64-bit integer scalars.</dd>
+<dt><tt>T3</tt> : tensor(float), tensor(double)</dt>
+<dd>Constrain input types to float tensors.</dd>
 </dl>
 

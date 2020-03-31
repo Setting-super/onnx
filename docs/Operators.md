@@ -175,6 +175,7 @@
   * <a href="#ai.onnx.training.Adagrad">ai.onnx.training.Adagrad</a>
   * <a href="#ai.onnx.training.Gradient">ai.onnx.training.Gradient</a>
   * <a href="#ai.onnx.training.GraphCall">ai.onnx.training.GraphCall</a>
+  * <a href="#ai.onnx.training.Momentum">ai.onnx.training.Momentum</a>
 
 ## ai.onnx (default)
 ### <a name="Abs"></a><a name="abs">**Abs**</a>
@@ -1968,7 +1969,9 @@ s = np.array([1.0, 1.5]).astype(np.float32)
 bias = np.array([0, 1]).astype(np.float32)
 mean = np.array([0, 3]).astype(np.float32)
 var = np.array([1, 1.5]).astype(np.float32)
-training_mode = np.ones(1, dtype=bool)
+# using np.bool(1) while generating test data with "'bool' object has no attribute 'dtype'"
+# working around by using np.byte(1).astype(bool)
+training_mode = np.byte(1).astype(bool)
 y, saved_mean, saved_var, output_mean, output_var = batchnorm_training_mode(x, s, bias, mean, var)
 
 node = onnx.helper.make_node(
@@ -1987,7 +1990,7 @@ s = np.random.randn(3).astype(np.float32)
 bias = np.random.randn(3).astype(np.float32)
 mean = np.random.randn(3).astype(np.float32)
 var = np.random.rand(3).astype(np.float32)
-training_mode = np.ones(1, dtype=bool)
+training_mode = np.byte(1).astype(bool)
 momentum = 0.9
 epsilon = 1e-2
 y, saved_mean, saved_var, output_mean, output_var = batchnorm_training_mode(x, s, bias, mean, var, momentum, epsilon)
@@ -10739,6 +10742,8 @@ This version of the operator has been available since version 12 of the default 
 #### Attributes
 
 <dl>
+<dt><tt>ignore_index</tt> : int</dt>
+<dd>Specifies a target value that is ignored and does not contribute to the input gradient. It is an optional value and valid values are [0, C).</dd>
 <dt><tt>reduction</tt> : string (default is mean)</dt>
 <dd>Type of reduction to apply to loss: none, sum, mean (default). 'none': the output is the loss for each sample. 'sum': the output will be summed. 'mean': the sum of the output will be divided by the sum of applied weights.</dd>
 </dl>
@@ -10953,6 +10958,36 @@ negative_log_likelihood_loss = compute_negative_log_likelihood_loss(input, targe
 
 expect(node, inputs=[input, target, weight], outputs=[negative_log_likelihood_loss],
     name='test_negative_log_likelihood_loss_input_shape_is_NCd1d2_with_weight_reduction_sum')
+```
+
+</details>
+
+
+<details>
+<summary>input_shape_is_NCd1d2_with_weight_reduction_sum_ignore_index</summary>
+
+```python
+reduction = 'sum'
+ignore_index = np.int64(0)
+node = onnx.helper.make_node(
+    'NegativeLogLikelihoodLoss',
+    inputs=['input', 'target', 'weight'],
+    outputs=['loss'],
+    reduction=reduction,
+    ignore_index=ignore_index
+)
+
+N, C, dim1, dim2 = 3, 5, 6, 6
+np.random.seed(0)
+input = np.random.rand(N, C, dim1, dim2).astype(np.float32)
+target = np.random.randint(0, high=C, size=(N, dim1, dim2))
+target[0][0][0] = 0
+weight = np.random.rand(C).astype(np.float32)
+
+negative_log_likelihood_loss = compute_negative_log_likelihood_loss(input, target, weight=weight, reduction=reduction, ignore_index=ignore_index)
+
+expect(node, inputs=[input, target, weight], outputs=[negative_log_likelihood_loss],
+    name='test_negative_log_likelihood_loss_input_shape_is_NCd1d2_with_weight_reduction_sum_ignore_index')
 ```
 
 </details>
@@ -11953,16 +11988,16 @@ for mode in ['edge', 'reflect']:
 
 #### Version
 
-This version of the operator has been available since version 7 of the default ONNX operator set.
+This version of the operator has been available since version 12 of the default ONNX operator set.
 
-Other versions of this operator: <a href="Changelog.md#Pow-1">Pow-1</a>
+Other versions of this operator: <a href="Changelog.md#Pow-1">Pow-1</a>, <a href="Changelog.md#Pow-7">Pow-7</a>
 
 #### Inputs
 
 <dl>
 <dt><tt>X</tt> : T</dt>
 <dd>First operand, base of the exponent.</dd>
-<dt><tt>Y</tt> : T</dt>
+<dt><tt>Y</tt> : T1</dt>
 <dd>Second operand, power of the exponent.</dd>
 </dl>
 
@@ -11976,8 +12011,10 @@ Other versions of this operator: <a href="Changelog.md#Pow-1">Pow-1</a>
 #### Type Constraints
 
 <dl>
-<dt><tt>T</tt> : tensor(float16), tensor(float), tensor(double)</dt>
-<dd>Constrain input and output types to float tensors.</dd>
+<dt><tt>T</tt> : tensor(int32), tensor(int64), tensor(float16), tensor(float), tensor(double)</dt>
+<dd>Constrain input X and output types to float/int tensors.</dd>
+<dt><tt>T1</tt> : tensor(uint8), tensor(uint16), tensor(uint32), tensor(uint64), tensor(int8), tensor(int16), tensor(int32), tensor(int64), tensor(float16), tensor(float), tensor(double)</dt>
+<dd>Constrain input Y types to float/int tensors.</dd>
 </dl>
 
 
@@ -11995,13 +12032,13 @@ node = onnx.helper.make_node(
 
 x = np.array([1, 2, 3]).astype(np.float32)
 y = np.array([4, 5, 6]).astype(np.float32)
-z = np.power(x, y)  # expected output [1., 32., 729.]
+z = pow(x, y)  # expected output [1., 32., 729.]
 expect(node, inputs=[x, y], outputs=[z],
        name='test_pow_example')
 
 x = np.arange(60).reshape(3, 4, 5).astype(np.float32)
 y = np.random.randn(3, 4, 5).astype(np.float32)
-z = np.power(x, y)
+z = pow(x, y)
 expect(node, inputs=[x, y], outputs=[z],
        name='test_pow')
 ```
@@ -12021,7 +12058,7 @@ node = onnx.helper.make_node(
 
 x = np.array([1, 2, 3]).astype(np.float32)
 y = np.array(2).astype(np.float32)
-z = np.power(x, y)  # expected output [1., 4., 9.]
+z = pow(x, y)  # expected output [1., 4., 9.]
 expect(node, inputs=[x, y], outputs=[z],
        name='test_pow_bcast_scalar')
 
@@ -12033,9 +12070,71 @@ node = onnx.helper.make_node(
 x = np.array([[1, 2, 3], [4, 5, 6]]).astype(np.float32)
 y = np.array([1, 2, 3]).astype(np.float32)
 # expected output [[1, 4, 27], [4, 25, 216]]
-z = np.power(x, y).astype(np.float32)
+z = pow(x, y)
 expect(node, inputs=[x, y], outputs=[z],
        name='test_pow_bcast_array')
+```
+
+</details>
+
+
+<details>
+<summary>types</summary>
+
+```python
+node = onnx.helper.make_node(
+    'Pow',
+    inputs=['x', 'y'],
+    outputs=['z'],
+)
+
+x = np.array([1, 2, 3]).astype(np.float32)
+y = np.array([4, 5, 6]).astype(np.int64)
+z = pow(x, y)  # expected output [1., 32., 729.]
+expect(node, inputs=[x, y], outputs=[z],
+       name='test_pow_types_float32_int64')
+
+x = np.array([1, 2, 3]).astype(np.int64)
+y = np.array([4, 5, 6]).astype(np.float32)
+z = pow(x, y)  # expected output [1, 32, 729]
+expect(node, inputs=[x, y], outputs=[z],
+       name='test_pow_types_int64_float32')
+
+x = np.array([1, 2, 3]).astype(np.float32)
+y = np.array([4, 5, 6]).astype(np.int32)
+z = pow(x, y)  # expected output [1., 32., 729.]
+expect(node, inputs=[x, y], outputs=[z],
+       name='test_pow_types_float32_int32')
+
+x = np.array([1, 2, 3]).astype(np.int32)
+y = np.array([4, 5, 6]).astype(np.float32)
+z = pow(x, y)  # expected output [1, 32, 729]
+expect(node, inputs=[x, y], outputs=[z],
+       name='test_pow_types_int32_float32')
+
+x = np.array([1, 2, 3]).astype(np.float32)
+y = np.array([4, 5, 6]).astype(np.uint64)
+z = pow(x, y)  # expected output [1., 32., 729.]
+expect(node, inputs=[x, y], outputs=[z],
+       name='test_pow_types_float32_uint64')
+
+x = np.array([1, 2, 3]).astype(np.float32)
+y = np.array([4, 5, 6]).astype(np.uint32)
+z = pow(x, y)  # expected output [1., 32., 729.]
+expect(node, inputs=[x, y], outputs=[z],
+       name='test_pow_types_float32_uint32')
+
+x = np.array([1, 2, 3]).astype(np.int64)
+y = np.array([4, 5, 6]).astype(np.int64)
+z = pow(x, y)  # expected output [1, 32, 729]
+expect(node, inputs=[x, y], outputs=[z],
+       name='test_pow_types_int64_int64')
+
+x = np.array([1, 2, 3]).astype(np.int32)
+y = np.array([4, 5, 6]).astype(np.int32)
+z = pow(x, y)  # expected output [1, 32, 729]
+expect(node, inputs=[x, y], outputs=[z],
+       name='test_pow_types_int32_int32')
 ```
 
 </details>
@@ -18208,6 +18307,8 @@ This version of the operator has been available since version 12 of the default 
 #### Attributes
 
 <dl>
+<dt><tt>ignore_index</tt> : int</dt>
+<dd>Specifies a target value that is ignored and does not contribute to the input gradient. It is an optional value and valid values are [0, C).</dd>
 <dt><tt>reduction</tt> : string (default is mean)</dt>
 <dd>Type of reduction to apply to loss: none, sum, mean(default). 'none': no reduction will be applied, 'sum': the output will be summed. 'mean': the sum of the output will be divided by the number of elements in the output.</dd>
 </dl>
@@ -18217,7 +18318,7 @@ This version of the operator has been available since version 12 of the default 
 <dl>
 <dt><tt>scores</tt> : T</dt>
 <dd>The predicted outputs with shape [batch_size, class_size], or [batch_size, class_size, D1, D2 , ..., Dk], where K is the number of dimensions.</dd>
-<dt><tt>labels</tt> : T</dt>
+<dt><tt>labels</tt> : Tind</dt>
 <dd>The ground truth output tensor, with shape [batch_size], or [batch_size, D1, D2, ..., Dk], where K is the number of dimensions.</dd>
 <dt><tt>weights</tt> (optional) : T</dt>
 <dd>A manual rescaling weight given to each class. If given, it has to be a 1D Tensor assigning weight to each of the classes. Otherwise, it is treated as if having all ones.</dd>
@@ -18237,6 +18338,8 @@ This version of the operator has been available since version 12 of the default 
 <dl>
 <dt><tt>T</tt> : tensor(float16), tensor(float), tensor(double)</dt>
 <dd>Constrain input and output types to float tensors.</dd>
+<dt><tt>Tind</tt> : tensor(int32), tensor(int64)</dt>
+<dd>Constrain target to integer types</dd>
 </dl>
 
 
@@ -18322,6 +18425,38 @@ sce = softmaxcrossentropy(x, labels, weight=weights)
 
 # Check results
 expect(node, inputs=[x, labels, weights], outputs=[sce], name='test_softmax_cross_entropy_mean_weight')
+```
+
+</details>
+
+
+<details>
+<summary>softmaxcrossentropy_mean_weights_ignore_index</summary>
+
+```python
+# Define operator attributes.
+reduction = 'mean'
+ignore_index = np.int64(0)
+
+# Create operator.
+node = onnx.helper.make_node('SoftmaxCrossEntropyLoss',
+                             inputs=['x', 'y', 'w'],
+                             outputs=['z'],
+                             reduction=reduction,
+                             ignore_index=ignore_index)
+
+# Define operator inputs.
+np.random.seed(0)
+x = np.random.rand(3, 5).astype(np.float32)
+labels = np.random.randint(0, high=5, size=(3, ))
+labels[0] = 0
+weights = np.array([0.9, 0.7, 0.8, 0.9, 0.9], dtype=np.float32)
+
+# Compute SoftmaxCrossEntropyLoss
+sce = softmaxcrossentropy(x, labels, weight=weights, ignore_index=ignore_index)
+
+# Check results
+expect(node, inputs=[x, labels, weights], outputs=[sce], name='test_softmax_cross_entropy_mean_weight_ignore_index')
 ```
 
 </details>
@@ -21527,5 +21662,245 @@ This version of the operator has been available since version 1 of the 'ai.onnx.
 <dt><tt>T</tt> : tensor(uint8), tensor(uint16), tensor(uint32), tensor(uint64), tensor(int8), tensor(int16), tensor(int32), tensor(int64), tensor(float16), tensor(float), tensor(double), tensor(string), tensor(bool), tensor(complex64), tensor(complex128)</dt>
 <dd>Allow inputs and outputs to be any kind of tensor.</dd>
 </dl>
+
+
+### <a name="ai.onnx.training.Momentum"></a><a name="ai.onnx.training.momentum">**ai.onnx.training.Momentum**</a>
+
+  Compute one iteration of stochastic gradient update with momentum.
+      This operator can conduct the optimization of multiple tensor variables.
+  
+      Let's define the behavior of this operator. As you can imagine, SG with momentum requires
+      several parameters:
+       
+       - The learning-rate "R".
+       - The update count "T". That is, the number of conducted training iterations. It should
+         be zero in the first training iteration.
+       - A L2-norm regularization coefficient "norm_coefficient".
+       - A decay coefficient of previous accumulated gradient (i.e., momentum) "alpha".
+       - The scaling coefficient of current gradient "beta".
+       - An attribute to choose either standard momentum or Nesterov's momentum "mode" should
+         be used.
+  
+      For the sake of simplicity, assume that there is only one tensor (called "X") to be optimized.
+      Other necessary inputs are "X"'s gradient (called "G") and "X"'s momentum (called "V"). This
+      Momentum operator maps all these inputs to the new value of "X" (called "X_new") and its new
+      momentum (called "V_new").
+      
+      This operator supports two different momentum algorithms. Set the attribute "mode" to
+      "nesterov" if Nesterov's momentum is desired. Otherwise, set the attribute "model" to
+      "standard" to use standard momentum. Computation details are described subsequently.
+  
+      Let "+", "-", "*", and "/" are all element-wise operations with numpy-style broadcasting.
+  
+      Pseudo code for SG with standard momentum:
+  
+        // Add gradient of 0.5 * norm_coefficient * ||X||^2, where ||X|| is the sum of squared
+        // values of all elements in X.
+        G_regularized = norm_coefficient * X + G
+  
+        // In the first training iteration, beta should always be 1.
+        beta_adjusted = T > 0 ? beta : 1
+  
+        // Compute the current momentum based on previous momentum and the current gradient.
+        V_new = alpha * V + beta_adjusted * G_regularized
+  
+        // Update X.
+        X_new = X - R * V_new
+  
+      Pseudo code for SG with Nesterov's momentum:
+  
+        // Add gradient of 0.5 * norm_coefficient * ||X||^2, where ||X|| is the sum of squared
+        // values of all elements in X.
+        G_regularized = norm_coefficient * X + G;
+  
+        // In the first training iteration, beta should always be 1.
+        beta_adjusted = T > 0 ? beta : 1
+  
+        // Compute the current momentum based on previous momentum and the current gradient.
+        V_new = alpha * V + beta_adjusted * G_regularized;
+  
+        // Compute final update direction and then update X.
+        X_new = X - R * (G_regularized + alpha * V_new)
+  
+      If one assign this operators to optimize multiple inputs, for example, "X_1" and "X_2". The same
+      pseudo code would be extended to handle all tensors jointly. More specifically, we can view "X" as a
+      concatenation of "X_1" and "X_2" (of course, their gradient and accumulate gradient should
+      be concatenated too) and then our pseudo code becomes applicable.
+
+#### Version
+
+This version of the operator has been available since version 1 of the 'ai.onnx.training' operator set.
+
+#### Attributes
+
+<dl>
+<dt><tt>alpha</tt> : float (required)</dt>
+<dd>The decay factor of momentum. It should be a scalar.</dd>
+<dt><tt>beta</tt> : float (required)</dt>
+<dd>The coefficient of gradient in computing new momentum. It should be a scalar.</dd>
+<dt><tt>mode</tt> : string (required)</dt>
+<dd>Its value should be either "nesterov" or "standard". The value "nesterov" leads to the use of Nesterov's momentum while "standard" invokes stochastic gradient method using standard momentum</dd>
+<dt><tt>norm_coefficient</tt> : float (required)</dt>
+<dd>Coefficient of 0.5 * norm_coefficient * ||X||^2.</dd>
+</dl>
+
+#### Inputs (3 - &#8734;)
+
+<dl>
+<dt><tt>R</tt> : T1</dt>
+<dd>The learning rate.</dd>
+<dt><tt>T</tt> : T2</dt>
+<dd>Update count of "X". It should be a scalar.</dd>
+<dt><tt>inputs</tt> (variadic, heterogeneous) : T3</dt>
+<dd>It sequentially contains the current values of optimized tensors, then their gradient tensors, and finally their momentum tensors. For example, if two tensors "X_1" and "X_2" are optimized, The expected input list would be ["X_1", "X_2", gradient of "X_1", gradient of "X_2", momentum of "X_1", momentum of "X_2"].</dd>
+</dl>
+
+#### Outputs (1 - &#8734;)
+
+<dl>
+<dt><tt>outputs</tt> (variadic, heterogeneous) : T3</dt>
+<dd>It sequentially contains the new values of optimized tensors and then the new values of their momentum tensors. For example, if two tensors "X_1" and "X_2" are optimized, the output list would be [new value of "X_1," new value of "X_2" new momentum of "X_1", new momentum of "X_2"].</dd>
+</dl>
+
+#### Type Constraints
+
+<dl>
+<dt><tt>T1</tt> : tensor(float), tensor(double)</dt>
+<dd>Constrain input types to float scalars.</dd>
+<dt><tt>T2</tt> : tensor(int64)</dt>
+<dd>Constrain input types to 64-bit integer scalars.</dd>
+<dt><tt>T3</tt> : tensor(float), tensor(double)</dt>
+<dd>Constrain input types to float tensors.</dd>
+</dl>
+
+
+#### Examples
+
+<details>
+<summary>momentum</summary>
+
+```python
+# Define operator attributes.
+norm_coefficient = 0.001
+alpha = 0.95
+beta = 0.1
+
+# Create operator.
+node = onnx.helper.make_node('Momentum',
+                             inputs=['R', 'T', 'X', 'G', 'V'],
+                             outputs=['X_new', 'V_new'],
+                             norm_coefficient=norm_coefficient,
+                             alpha=alpha,
+                             beta=beta,
+                             mode='standard',
+                             domain='ai.onnx.training'
+                             )
+
+# Define operator inputs.
+r = np.array(0.1, dtype=np.float32)  # scalar
+t = np.array(0, dtype=np.int64)  # scalar
+x = np.array([1.2, 2.8], dtype=np.float32)
+g = np.array([-0.94, -2.5], dtype=np.float32)
+v = np.array([1.7, 3.6], dtype=np.float32)
+
+# Compute expected outputs of Momentum.
+x_new, v_new = apply_momentum(r, t, x, g, v,
+                              norm_coefficient, alpha, beta)
+
+# Check results.
+expect(node, inputs=[r, t, x, g, v],
+       outputs=[x_new, v_new], name='test_momentum',
+       opset_imports=[onnx.helper.make_opsetid('ai.onnx.training', 1)])
+```
+
+</details>
+
+
+<details>
+<summary>momentum_multiple</summary>
+
+```python
+# Define operator attributes.
+norm_coefficient = 0.001
+alpha = 0.95
+beta = 0.85
+
+node = onnx.helper.make_node('Momentum',
+                             inputs=['R', 'T', 'X1', 'X2',
+                                     'G1', 'G2', 'H1', 'H2'],
+                             outputs=['X1_new', 'X2_new',
+                                      'V1_new', 'V2_new'],
+                             norm_coefficient=norm_coefficient,
+                             alpha=alpha,
+                             beta=beta,
+                             mode='standard',
+                             domain='ai.onnx.training'
+                             )
+
+# Define operator inputs.
+r = np.array(0.1, dtype=np.float32)  # scalar
+t = np.array(0, dtype=np.int64)  # scalar
+
+x1 = np.array([1.0], dtype=np.float32)
+g1 = np.array([-1.0], dtype=np.float32)
+v1 = np.array([2.0], dtype=np.float32)
+
+x2 = np.array([1.0, 2.0], dtype=np.float32)
+g2 = np.array([-1.0, -3.0], dtype=np.float32)
+v2 = np.array([4.0, 1.0], dtype=np.float32)
+
+# Compute expected outputs of Momentum.
+x1_new, v1_new = apply_momentum(r, t, x1, g1, v1,
+                                norm_coefficient, alpha, beta)
+x2_new, v2_new = apply_momentum(r, t, x2, g2, v2,
+                                norm_coefficient, alpha, beta)
+
+# Check results.
+expect(node, inputs=[r, t, x1, x2, g1, g2, v1, v2],
+       outputs=[x1_new, x2_new, v1_new, v2_new], name='test_momentum_multiple',
+       opset_imports=[onnx.helper.make_opsetid('ai.onnx.training', 1)])
+```
+
+</details>
+
+
+<details>
+<summary>nesterov_momentum</summary>
+
+```python
+# Define operator attributes.
+norm_coefficient = 0.01
+alpha = 0.95
+beta = 1.0
+
+# Create operator.
+node = onnx.helper.make_node('Momentum',
+                             inputs=['R', 'T', 'X', 'G', 'V'],
+                             outputs=['X_new', 'V_new'],
+                             norm_coefficient=norm_coefficient,
+                             alpha=alpha,
+                             beta=beta,
+                             mode='nesterov',
+                             domain='ai.onnx.training'
+                             )
+
+# Define operator inputs.
+r = np.array(0.1, dtype=np.float32)  # scalar
+t = np.array(0, dtype=np.int64)  # scalar
+x = np.array([1.2, 2.8], dtype=np.float32)
+g = np.array([-0.94, -2.5], dtype=np.float32)
+v = np.array([1.7, 3.6], dtype=np.float32)
+
+# Compute expected outputs of Adagrad.
+x_new, v_new = apply_nesterov(r, t, x, g, v,
+                              norm_coefficient, alpha, beta)
+
+# Check results.
+expect(node, inputs=[r, t, x, g, v],
+       outputs=[x_new, v_new], name='test_nesterov_momentum',
+       opset_imports=[onnx.helper.make_opsetid('ai.onnx.training', 1)])
+```
+
+</details>
 
 
